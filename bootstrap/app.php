@@ -19,6 +19,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // Vite/Tailwind ditulis sebagai http://... dan browser memblokirnya
         // sebagai mixed content -> CSS tidak termuat sama sekali.
         // Daftar proxy diatur lewat TRUSTED_PROXIES (dipisah koma, atau "*").
+        // env() tetap aman di sini karena Railway menyuntikkan variabel sebagai
+        // environment variable proses, bukan hanya lewat file .env.
         $trustedProxies = array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1,::1')));
 
         $middleware->trustProxies(

@@ -5,10 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 
 class Surat extends Model
 {
     use HasFactory;
+
+    /**
+     * Key cache untuk agregat ringkasan (total surat & arsip).
+     */
+    public const CACHE_KEY_RINGKASAN = 'surat.ringkasan';
 
     public const JENIS_SURAT_MASUK = 'Surat Masuk';
     public const JENIS_SURAT_KELUAR = 'Surat Keluar';
@@ -74,6 +80,15 @@ class Surat extends Model
     }
 
     /**
+     * Invalidasi cache agregat setiap kali data surat berubah.
+     */
+    protected static function booted(): void
+    {
+        static::saved(static fn () => Cache::forget(self::CACHE_KEY_RINGKASAN));
+        static::deleted(static fn () => Cache::forget(self::CACHE_KEY_RINGKASAN));
+    }
+
+    /**
      * Daftar pilihan jenis surat (dipakai pada form & filter).
      *
      * @return array<string, string>
@@ -110,14 +125,23 @@ class Surat extends Model
      */
     public static function ringkasan(): array
     {
-        $data = self::query()
-            ->selectRaw('COUNT(*) as total_surat, COUNT(file_dokumen) as total_arsip')
-            ->first();
+        // Cache singkat (60 detik) agar perpindahan halaman tidak selalu
+        // mengirim query agregat ke database cloud. Cache otomatis dihapus
+        // oleh event saved/deleted di atas saat data berubah.
+        return Cache::remember(
+            self::CACHE_KEY_RINGKASAN,
+            now()->addMinute(),
+            function (): array {
+                $data = self::query()
+                    ->selectRaw('COUNT(*) as total_surat, COUNT(file_dokumen) as total_arsip')
+                    ->first();
 
-        return [
-            'total_surat' => (int) ($data->total_surat ?? 0),
-            'total_arsip' => (int) ($data->total_arsip ?? 0),
-        ];
+                return [
+                    'total_surat' => (int) ($data->total_surat ?? 0),
+                    'total_arsip' => (int) ($data->total_arsip ?? 0),
+                ];
+            }
+        );
     }
 
     /**

@@ -104,8 +104,12 @@ Catatan:
 - Username pooler selalu berbentuk `postgres.<project-ref>`.
 - Gunakan **Session pooler (port 5432)** untuk aplikasi Laravel biasa dan untuk migrasi.
 - **Transaction pooler (port 6543)** lebih cocok untuk serverless, tetapi tidak mendukung
-  semua fitur prepared statement.
+  semua fitur level sesi (prepared statement, `search_path`, dan koneksi persisten).
+  Bila tetap memakai port 6543, set `DB_PERSISTENT=false`.
 - `DB_SSLMODE=require` wajib untuk koneksi Supabase.
+- `DB_PERSISTENT=true` membuat koneksi TCP/TLS ke pooler dipakai ulang antar-request,
+  sehingga handshake tidak terjadi pada setiap klik. Ini aman untuk Session pooler
+  dengan jumlah worker terbatas (container ini memakai 4 worker).
 
 ## 4. Deploy ke Railway
 
@@ -156,11 +160,19 @@ Langkah deploy:
    DB_USERNAME=postgres.qbdwrucapuktnllbqoig
    DB_PASSWORD=...
    DB_SSLMODE=require
+   DB_PERSISTENT=true
 
-   SESSION_DRIVER=database
-   CACHE_STORE=database
+   SESSION_DRIVER=cookie
+   SESSION_SECURE_COOKIE=true
+   CACHE_STORE=file
    QUEUE_CONNECTION=database
    ```
+
+   > **Penting:** nilai di dashboard Railway menimpa default di `Dockerfile`.
+   > Jika service masih menyimpan `SESSION_DRIVER=database` atau
+   > `CACHE_STORE=database`, ubah/hapus variabel tersebut. Setiap request halaman
+   > akan melakukan beberapa round-trip tambahan ke Supabase (session read/write
+   > dan cache read) bila driver database masih dipakai.
 
 3. Deploy ulang. Log build harus menampilkan `Using detected Dockerfile!` dan log
    runtime kurang lebih `PHP 8.2.x Development Server (http://0.0.0.0:8080) started`.
@@ -216,7 +228,136 @@ Aplikasi tersedia di `http://localhost:8080` (ubah dengan `APP_PORT`).
 tidak dimasukkan ke dalam image (lihat `.dockerignore`), sehingga kredensial tidak
 tersimpan di layer image.
 
-## 6. Catatan keamanan
+## 6. Optimasi performa (navigasi terasa lambat)
+
+Penyebab utama navigasi lambat bukan render Blade, melainkan **jumlah round-trip
+ke database Supabase**. Sebelum optimasi, satu halaman bisa mengirim 6–9 query
+berurutan: baca session, ambil user untuk auth, baca cache badge, query agregat,
+query daftar, lalu tulis session di akhir request. Dengan RTT 150–250 ms dari
+region yang berjauhan, angka itu mudah menjadi ~2 detik per klik.
+
+Yang sudah diterapkan di repository ini:
+
+1. **Cache framework dibuat saat container start** (`docker/entrypoint.sh`),
+   bukan saat image di-build. `php artisan optimize` menjalankan
+   `config:cache`, `event:cache`, `route:cache`, dan `view:cache`. Cache harus
+   dibuat saat runtime karena Railway baru menyuntikkan `APP_KEY`/`DB_*` ketika
+   container berjalan; bila di-cache saat build, nilai yang terbaca bisa salah.
+2. **OPcache diaktifkan untuk CLI** (`Dockerfile`) karena server produksi memakai
+   `php -S` (SAPI CLI). Tanpa `opcache.enable_cli=1`, OPcache tidak bekerja.
+3. **Koneksi PostgreSQL persisten** (`config/database.php`) lewat
+   `PDO::ATTR_PERSISTENT`, diatur dengan `DB_PERSISTENT` (default `true`).
+   Handshake TCP + TLS + autentikasi hanya terjadi sekali per worker.
+4. **Session & cache tidak lagi memakai database cloud** secara default.
+   Session memakai `file`/`cookie`, cache memakai `file`.
+5. **Agregat dashboard di-cache 60 detik** (`Surat::ringkasan()` dan
+   `User::ringkasan()`) dan otomatis dihapus saat ada data yang dibuat,
+   diubah, atau dihapus.
+
+### 6.1 Variabel Railway yang disarankan
+
+Buka **Service → Variables**, lalu pastikan nilainya seperti berikut
+(atau hapus variabel lama yang menimpanya):
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+
+DB_CONNECTION=pgsql
+DB_HOST=aws-1-ap-southeast-2.pooler.supabase.com
+DB_PORT=5432                 # Session Pooler, bukan 6543
+DB_DATABASE=postgres
+DB_USERNAME=postgres.<project-ref>
+DB_PASSWORD=...
+DB_SSLMODE=require
+DB_PERSISTENT=true
+
+SESSION_DRIVER=cookie        # atau file bila hanya satu instance
+SESSION_SECURE_COOKIE=true   # cookie hanya dikirim lewat HTTPS
+CACHE_STORE=file
+```
+
+Pilihan driver session:
+
+| Driver | Kelebihan | Kekurangan |
+| --- | --- | --- |
+| `cookie` | Tanpa penyimpanan server, tahan restart, cocok untuk container stateless | Data session dibatasi ~4 KB; cookie terenkripsi Laravel |
+| `file` | Cepat, sederhana | Hilang saat redeploy; tidak dibagi antar-replica |
+| `redis` | Paling cepat & dibagi antar-replica | Perlu layanan Redis + ekstensi PHP `redis` |
+
+Redis bersifat opsional. Bila ingin memakainya, tambahkan layanan Redis di
+Railway, set `REDIS_URL`, lalu tambahkan ekstensi berikut ke tahap `phpbase`
+pada `Dockerfile`:
+
+```dockerfile
+RUN pecl install redis && docker-php-ext-enable redis
+```
+
+dan ubah variabel menjadi `SESSION_DRIVER=redis`, `CACHE_STORE=redis`.
+
+### 6.2 Dekatkan region aplikasi dengan database
+
+Host Supabase pada proyek ini berada di `ap-southeast-2` (Sydney). Pilih region
+Railway yang terdekat (Southeast Asia/Singapore bila tersedia). Selisih region
+bisa menambah 100–200 ms **per query**, sehingga dampaknya lebih besar daripada
+optimasi kode apa pun.
+
+### 6.3 Verifikasi setelah deploy
+
+```bash
+# Jalankan di shell container (Railway) atau `docker compose exec app ...` lokal.
+
+# Cache framework harus terbentuk (config.php, routes-v7.php, services.php).
+ls -l bootstrap/cache
+
+# Pastikan driver yang benar-benar dipakai sudah berubah.
+php artisan about --only=environment
+php artisan about --only=cache
+```
+
+Di log container, `php artisan optimize` akan menampilkan
+`Configuration cached successfully`, `Routes cached successfully`, dan
+`Blade templates cached successfully`. Setelah mengubah variabel Railway,
+redeploy/restart container agar entrypoint membangun ulang cache.
+
+Saat men-debug (misalnya setelah mengubah config), bersihkan cache dengan:
+
+```bash
+php artisan optimize:clear
+```
+
+### 6.4 Catatan N+1 query
+
+Saat ini model `Surat` dan `User` **tidak memiliki relasi Eloquent**, sehingga
+tidak ada N+1 yang perlu di-eager-load. Controller sudah:
+
+- memakai scope `ringkas()` yang hanya mengambil kolom yang ditampilkan
+  (`tanda_tangan` base64 yang besar tidak ikut dimuat),
+- menggabungkan hitungan statistik menjadi satu query agregat,
+- memakai `COUNT(file_dokumen)` alih-alih pengecekan file per baris.
+
+`Model::preventLazyLoading()` juga sudah aktif di luar production sehingga relasi
+yang lupa di-eager-load akan langsung terdeteksi. Jika nanti ditambahkan relasi
+(misalnya surat dimiliki seorang petugas), gunakan eager loading:
+
+```php
+Surat::with(['petugas:id,nama_lengkap'])
+    ->ringkas()
+    ->paginate(10);
+```
+
+Untuk mengukur jumlah query per halaman, gunakan Laravel Debugbar/Telescope di
+lokal atau `DB::listen()` di `AppServiceProvider`.
+
+Pencarian `LIKE '%kata%'` tidak dapat memakai index B-tree biasa. Bila jumlah
+surat sudah sangat besar (puluhan ribu), pertimbangkan index trigram:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX surat_perihal_trgm_idx ON surat USING gin (perihal gin_trgm_ops);
+```
+
+## 7. Catatan keamanan
 
 Password database sempat ditulis di dalam `.env` yang dibagikan. Sebaiknya ganti password
 database dari Supabase Dashboard, lalu perbarui `DB_PASSWORD` di `.env` server. Jangan

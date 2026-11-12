@@ -85,6 +85,17 @@ class AdminUserManagementTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_ringkasan_cache_is_invalidated_when_users_change(): void
+    {
+        $this->assertSame(0, User::ringkasan()['total_pengguna']);
+
+        $admin = $this->makeAdmin();
+        $this->assertSame(1, User::ringkasan()['total_pengguna']);
+
+        $admin->delete();
+        $this->assertSame(0, User::ringkasan()['total_pengguna']);
+    }
+
     public function test_users_index_lists_accounts(): void
     {
         $admin = $this->makeAdmin();

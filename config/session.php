@@ -18,7 +18,11 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    // Database sessions add one remote round-trip (read + write) to every
+    // request when the database is hosted outside the container. The default
+    // is therefore the local file driver; use "cookie" for stateless Railway
+    // containers or "redis" when a shared session store is available.
+    'driver' => env('SESSION_DRIVER', 'file'),
 
     /*
     |--------------------------------------------------------------------------

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 
 class User extends Authenticatable
 {
@@ -18,9 +19,11 @@ class User extends Authenticatable
     public const STATUS_NONAKTIF = 'nonaktif';
 
     /**
-     * Key cache untuk jumlah akun nonaktif (badge notifikasi topbar).
+     * Key cache untuk jumlah akun nonaktif (badge notifikasi topbar) dan
+     * agregat ringkasan akun pada dasbor admin.
      */
     public const CACHE_KEY_NONAKTIF = 'users.nonaktif.count';
+    public const CACHE_KEY_RINGKASAN = 'users.ringkasan';
 
     /**
      * The attributes that are mass assignable.
@@ -58,26 +61,50 @@ class User extends Authenticatable
     }
 
     /**
+     * Invalidasi cache agregat setiap kali data pengguna berubah.
+     */
+    protected static function booted(): void
+    {
+        static::saved(static function (): void {
+            Cache::forget(self::CACHE_KEY_RINGKASAN);
+            Cache::forget(self::CACHE_KEY_NONAKTIF);
+        });
+
+        static::deleted(static function (): void {
+            Cache::forget(self::CACHE_KEY_RINGKASAN);
+            Cache::forget(self::CACHE_KEY_NONAKTIF);
+        });
+    }
+
+    /**
      * Ringkasan akun (total, admin, petugas) dalam satu query agregat.
      *
      * @return array{total_pengguna: int, total_admin: int, total_petugas: int}
      */
     public static function ringkasan(): array
     {
-        $data = self::query()
-            ->selectRaw(
-                'COUNT(*) as total_pengguna, '
-                .'COALESCE(SUM(CASE WHEN hak_akses = ? THEN 1 ELSE 0 END), 0) as total_admin, '
-                .'COALESCE(SUM(CASE WHEN hak_akses = ? THEN 1 ELSE 0 END), 0) as total_petugas',
-                [self::HAK_AKSES_ADMIN, self::HAK_AKSES_PETUGAS]
-            )
-            ->first();
+        // Nilai agregat di-cache sebentar agar tidak dihitung ulang pada setiap
+        // perpindahan halaman. Event saved/deleted di atas menjaga validitas.
+        return Cache::remember(
+            self::CACHE_KEY_RINGKASAN,
+            now()->addMinute(),
+            function (): array {
+                $data = self::query()
+                    ->selectRaw(
+                        'COUNT(*) as total_pengguna, '
+                        .'COALESCE(SUM(CASE WHEN hak_akses = ? THEN 1 ELSE 0 END), 0) as total_admin, '
+                        .'COALESCE(SUM(CASE WHEN hak_akses = ? THEN 1 ELSE 0 END), 0) as total_petugas',
+                        [self::HAK_AKSES_ADMIN, self::HAK_AKSES_PETUGAS]
+                    )
+                    ->first();
 
-        return [
-            'total_pengguna' => (int) ($data->total_pengguna ?? 0),
-            'total_admin' => (int) ($data->total_admin ?? 0),
-            'total_petugas' => (int) ($data->total_petugas ?? 0),
-        ];
+                return [
+                    'total_pengguna' => (int) ($data->total_pengguna ?? 0),
+                    'total_admin' => (int) ($data->total_admin ?? 0),
+                    'total_petugas' => (int) ($data->total_petugas ?? 0),
+                ];
+            }
+        );
     }
 
     /**

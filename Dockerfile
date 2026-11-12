@@ -23,6 +23,22 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# OPcache is disabled by default for the CLI SAPI, and the runtime uses
+# `php -S` (CLI SAPI). Enable it explicitly so PHP does not re-parse every
+# framework file on each request. The image is immutable, so timestamps do
+# not need to be revalidated at runtime.
+RUN { \
+        echo 'opcache.enable=1'; \
+        echo 'opcache.enable_cli=1'; \
+        echo 'opcache.memory_consumption=192'; \
+        echo 'opcache.interned_strings_buffer=16'; \
+        echo 'opcache.max_accelerated_files=20000'; \
+        echo 'opcache.validate_timestamps=0'; \
+        echo 'opcache.save_comments=1'; \
+        echo 'realpath_cache_size=4096K'; \
+        echo 'realpath_cache_ttl=600'; \
+    } > /usr/local/etc/php/conf.d/zz-performance.ini
+
 # Composer is only needed while building the image.
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
@@ -89,11 +105,17 @@ RUN sed -i 's/\r$//' /usr/local/bin/app-entrypoint.sh \
     && chown -R www-data:www-data storage bootstrap/cache
 
 # Production defaults. Railway service variables override these.
+# Sessions and cache are kept on the local filesystem by default so that a
+# page request does not pay for extra round-trips to the remote Supabase
+# database. Override with Redis (SESSION_DRIVER=redis / CACHE_STORE=redis)
+# when a shared store is required.
 ENV APP_ENV=production \
     APP_DEBUG=false \
     LOG_CHANNEL=stderr \
     PORT=8080 \
-    PHP_CLI_SERVER_WORKERS=4
+    PHP_CLI_SERVER_WORKERS=4 \
+    SESSION_DRIVER=file \
+    CACHE_STORE=file
 
 EXPOSE 8080
 

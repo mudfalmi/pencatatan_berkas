@@ -103,7 +103,19 @@ class AdminSuratManagementTest extends TestCase
         $this->get(route('admin.surat.index'))
             ->assertOk()
             ->assertSee('Kelola Surat &amp; Arsip', false)
-            ->assertSee(route('admin.surat.index'), false);    }
+            ->assertSee(route('admin.surat.index'), false);
+    }
+
+    public function test_ringkasan_cache_is_invalidated_when_surat_changes(): void
+    {
+        $this->assertSame(0, Surat::ringkasan()['total_surat']);
+
+        $surat = $this->makeSurat();
+        $this->assertSame(1, Surat::ringkasan()['total_surat']);
+
+        $surat->delete();
+        $this->assertSame(0, Surat::ringkasan()['total_surat']);
+    }
 
     public function test_surat_index_can_be_filtered(): void
     {

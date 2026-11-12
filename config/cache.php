@@ -15,7 +15,9 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    // Keep cache reads local by default; a remote database cache store costs
+    // a round-trip on every Cache::get()/Cache::remember() call.
+    'default' => env('CACHE_STORE', 'file'),
 
     /*
     |--------------------------------------------------------------------------

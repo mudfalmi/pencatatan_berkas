@@ -23,10 +23,22 @@ mkdir -p \
 
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
+cd /var/www/html
+
+# Build Laravel's production caches at container start, not during the image
+# build. Railway injects service variables (APP_KEY, DB_*, ...) at runtime, so
+# caching config at build time would bake in the wrong values.
+#
+# `optimize` runs config:cache, event:cache, route:cache and view:cache. Keeping
+# these caches means Laravel no longer parses the config and route files on
+# every request.
+if ! php artisan optimize; then
+    echo "WARNING: php artisan optimize failed; continuing without framework caches." >&2
+fi
+
 # Ensure public/storage -> storage/app/public exists on every boot.
 # This is what makes uploaded files and storage-backed logos publicly
 # accessible when Railway starts a fresh container.
-cd /var/www/html
 php artisan storage:link --force >/dev/null 2>&1 || true
 
 exec "$@"

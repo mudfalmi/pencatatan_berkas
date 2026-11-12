@@ -96,7 +96,24 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
-            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'sslmode' => env('DB_SSLMODE', 'require'),
+
+            /*
+             * Supabase berada di jaringan publik, sehingga setiap koneksi baru
+             * harus melakukan TCP + TLS + autentikasi. Dengan koneksi persisten,
+             * handshake tersebut hanya terjadi sekali per proses PHP (worker),
+             * bukan pada setiap request.
+             *
+             * Gunakan Session Pooler (port 5432) bila opsi ini aktif. Transaction
+             * Pooler (port 6543) tidak mendukung fitur level sesi (prepared
+             * statement, search_path, dsb.) secara konsisten.
+             *
+             * Set DB_PERSISTENT=false jika pooler menutup koneksi idle dan
+             * aplikasi menerima error "connection ... closed unexpectedly".
+             */
+            'options' => [
+                PDO::ATTR_PERSISTENT => (bool) env('DB_PERSISTENT', true),
+            ],
         ],
 
         'sqlsrv' => [

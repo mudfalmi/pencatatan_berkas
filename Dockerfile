@@ -19,6 +19,10 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Disable conflicting MPM modules and enable mpm_prefork for PHP compatibility
+RUN a2dismod mpm_event mpm_worker || true \
+    && a2enmod mpm_prefork
+
 # Apache: pretty URLs + Laravel public/ as document root.
 RUN a2enmod rewrite headers \
     && sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf \

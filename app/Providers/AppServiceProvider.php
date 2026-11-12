@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -16,9 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        if (env('APP_ENV') === 'production') {
-            \Illuminate\Support\Facades\URL::forceHttps();
-    }
+        //
     }
 
     /**
@@ -26,6 +25,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Railway/ngrok berada di balik reverse proxy. Paksa semua URL aset
+        // (CSS, JS, logo) memakai HTTPS di production agar tidak diblokir
+        // browser sebagai Mixed Content.
+        if (app()->isProduction()) {
+            URL::forceHttps();
+        }
+
         // Pagination memakai markup Bootstrap 5
         Paginator::useBootstrapFive();
 

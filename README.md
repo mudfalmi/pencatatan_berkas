@@ -121,8 +121,10 @@ php artisan db:show
 ### Deploy ke Railway
 
 Railway harus memakai `Dockerfile` (dipaksa lewat `railway.json`), bukan Procfile
-Heroku. Apache di image hanya mengaktifkan `mpm_prefork`, dan port mengikuti
-variabel `PORT` dari Railway. Variabel `APP_KEY`, `APP_URL`, dan `DB_*` wajib diisi
-di dashboard Railway. Langkah lengkapnya ada di
+Heroku. Image runtime memakai `php:8.2-cli` dengan PHP built-in server, sedangkan
+aset Vite dibangun di stage `node:22-alpine` dan disalin ke `public/build`.
+Start command mengikuti variabel `PORT` dari Railway (default `8080`), dan
+`storage:link` dijalankan otomatis oleh entrypoint. Variabel `APP_KEY`, `APP_URL`,
+dan `DB_*` wajib diisi di dashboard Railway. Langkah lengkapnya ada di
 [DEPLOYMENT.md](DEPLOYMENT.md#4-deploy-ke-railway).
 

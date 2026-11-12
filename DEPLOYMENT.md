@@ -109,24 +109,30 @@ Catatan:
 
 ## 4. Deploy ke Railway
 
-Error berikut di Railway:
+Deployment sekarang memakai **PHP built-in server** di atas image `php:8.2-cli`,
+bukan Apache. Dengan begitu error Apache seperti
+`AH00534: More than one MPM loaded` tidak lagi relevan.
 
-```text
-AH00534: apache2: Configuration error: More than one MPM loaded.
-```
+Yang sudah disiapkan:
 
-terjadi karena container menjalankan Apache dengan lebih dari satu MPM
-(`mpm_event`/`mpm_worker` bersama `mpm_prefork`), atau karena Railway masih memakai
-start command lama dari Procfile/buildpack (`heroku-php-apache2`).
+- `railway.json` memaksa Railway memakai **Dockerfile** (bukan Procfile/Heroku
+  buildpack) dan start command:
+  `php -S 0.0.0.0:${PORT:-8080} -t public`.
+- `Dockerfile` memakai `php:8.2-cli` dan menginstal ekstensi `pdo_pgsql`, `pgsql`,
+  `intl`, `bcmath`, `zip`, dan `opcache`, lalu menjalankan
+  `composer install --no-dev`.
+- Stage `node:22-alpine` menjalankan `npm ci && npm run build`, kemudian hasil
+  `public/build` disalin ke image final. Jadi manifest Vite selalu baru walaupun
+  folder build tidak ikut di repository.
+- `docker/entrypoint.sh` membuat folder writable, menjalankan
+  `php artisan storage:link --force`, lalu menjalankan server dengan `$PORT`.
+- `AppServiceProvider` memanggil `URL::forceHttps()` saat production agar URL CSS,
+  JS, dan logo tidak menjadi Mixed Content.
 
-Perbaikan yang sudah disiapkan:
-
-- `railway.json` memaksa Railway memakai **Dockerfile** dan start command
-  `app-entrypoint.sh apache2-foreground`.
-- `Dockerfile` menghapus semua symlink MPM lalu hanya mengaktifkan `mpm_prefork`,
-  serta menjalankan `apache2ctl -t` saat build agar konfigurasi Apache divalidasi.
-- `docker/entrypoint.sh` menyesuaikan Apache dengan variabel `PORT` dari Railway
-  (default `8080`).
+> **Penting:** jangan memakai `public/index.php` sebagai router script
+> (`php -S ... index.php`). Router tersebut membuat request file statis seperti
+> `/build/...css` dan `/images/logo-kemenag.png` ikut diproses Laravel sehingga
+> menghasilkan redirect/404. Gunakan `-t public` seperti konfigurasi di repo ini.
 
 Langkah deploy:
 
@@ -156,31 +162,52 @@ Langkah deploy:
    QUEUE_CONNECTION=database
    ```
 
-3. Deploy ulang. Log build harus menampilkan `Using detected Dockerfile!`.
+3. Deploy ulang. Log build harus menampilkan `Using detected Dockerfile!` dan log
+   runtime kurang lebih `PHP 8.2.x Development Server (http://0.0.0.0:8080) started`.
 4. `preDeployCommand` di `railway.json` otomatis menjalankan
    `php artisan migrate --force` sebelum container start.
-5. Generate domain Railway, lalu pastikan target port-nya sama dengan `PORT`
+5. Generate domain Railway, lalu pastikan target port service sama dengan `PORT`
    container (default `8080`).
 
-Jika error MPM masih muncul:
+Jika masih memakai konfigurasi lama:
 
 - Buka **Service Settings -> Deploy -> Custom Start Command**, kosongkan nilai lama
-  seperti `vendor/bin/heroku-php-apache2 public/`. Nilai di dashboard bisa menimpa
-  konfigurasi repo.
+  seperti `vendor/bin/heroku-php-apache2 public/` atau `apache2-foreground`.
+  Nilai di dashboard menimpa `railway.json`.
 - Pastikan builder service diarahkan ke Dockerfile. Bisa juga tambahkan variable
   `RAILWAY_DOCKERFILE_PATH=Dockerfile`.
-- Hapus/abaikan `Procfile` lama karena itu untuk Heroku buildpack, bukan Docker.
+- Abaikan/hapus `Procfile` lama karena itu untuk Heroku buildpack, bukan Docker.
+
+Verifikasi aset setelah deploy:
+
+```bash
+curl -I https://domain-railway-anda/build/manifest.json
+curl -I https://domain-railway-anda/images/logo-kemenag.png
+curl -I https://domain-railway-anda/build/assets/theme-9mBLujFM.css
+```
+
+Ketiganya harus mengembalikan `200` (bukan `302`/`404`), dan URL di HTML login harus
+diawali `https://`. Jika masih Mixed Content, pastikan `APP_ENV=production` dan
+`APP_URL=https://...`, lalu jalankan `php artisan optimize:clear` setelah mengubah
+variable.
 
 ## 5. Menjalankan dengan Docker
 
-File `Dockerfile` sudah menginstal `pdo_pgsql`, `pgsql`, `intl`, `bcmath`, `zip`, dan
-`opcache`, serta mengarahkan Apache ke folder `public/`.
+File `Dockerfile` memakai `php:8.2-cli` + PHP built-in server, dengan stage
+`node:22-alpine` untuk membangun aset Vite. Ekstensi PHP yang tersedia:
+`pdo_pgsql`, `pgsql`, `intl`, `bcmath`, `zip`, dan `opcache`.
 
 ```bash
 docker compose build --no-cache
 docker compose up -d
 docker compose exec app php artisan migrate --force
-docker compose exec app php artisan storage:link
+```
+
+`storage:link` sudah dijalankan otomatis oleh entrypoint setiap container start,
+tetapi bisa juga dijalankan manual:
+
+```bash
+docker compose exec app php artisan storage:link --force
 ```
 
 Aplikasi tersedia di `http://localhost:8080` (ubah dengan `APP_PORT`).

@@ -12,6 +12,8 @@ vendor
 tests
 phpunit.xml
 .phpunit.result.cache
+/public/build
+/public/storage
 storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*

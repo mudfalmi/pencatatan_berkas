@@ -19,11 +19,12 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Fix MPM conflict completely by purging event/worker and forcing prefork
+# Purge all conflicting MPM modules directly from mods-enabled
 RUN rm -f /etc/apache2/mods-enabled/mpm_event.* \
     && rm -f /etc/apache2/mods-enabled/mpm_worker.* \
-    && a2dismod -f mpm_event mpm_worker 2>/dev/null || true \
-    && a2enmod mpm_prefork
+    && rm -f /etc/apache2/mods-enabled/mpm_prefork.* \
+    && ln -s /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/ \
+    && ln -s /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/
 
 # Apache: pretty URLs + Laravel public/ as document root.
 RUN a2enmod rewrite headers \

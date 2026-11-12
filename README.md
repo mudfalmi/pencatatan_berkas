@@ -118,3 +118,11 @@ php artisan config:clear
 php artisan db:show
 ```
 
+### Deploy ke Railway
+
+Railway harus memakai `Dockerfile` (dipaksa lewat `railway.json`), bukan Procfile
+Heroku. Apache di image hanya mengaktifkan `mpm_prefork`, dan port mengikuti
+variabel `PORT` dari Railway. Variabel `APP_KEY`, `APP_URL`, dan `DB_*` wajib diisi
+di dashboard Railway. Langkah lengkapnya ada di
+[DEPLOYMENT.md](DEPLOYMENT.md#4-deploy-ke-railway).
+

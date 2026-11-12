@@ -107,7 +107,71 @@ Catatan:
   semua fitur prepared statement.
 - `DB_SSLMODE=require` wajib untuk koneksi Supabase.
 
-## 4. Menjalankan dengan Docker
+## 4. Deploy ke Railway
+
+Error berikut di Railway:
+
+```text
+AH00534: apache2: Configuration error: More than one MPM loaded.
+```
+
+terjadi karena container menjalankan Apache dengan lebih dari satu MPM
+(`mpm_event`/`mpm_worker` bersama `mpm_prefork`), atau karena Railway masih memakai
+start command lama dari Procfile/buildpack (`heroku-php-apache2`).
+
+Perbaikan yang sudah disiapkan:
+
+- `railway.json` memaksa Railway memakai **Dockerfile** dan start command
+  `app-entrypoint.sh apache2-foreground`.
+- `Dockerfile` menghapus semua symlink MPM lalu hanya mengaktifkan `mpm_prefork`,
+  serta menjalankan `apache2ctl -t` saat build agar konfigurasi Apache divalidasi.
+- `docker/entrypoint.sh` menyesuaikan Apache dengan variabel `PORT` dari Railway
+  (default `8080`).
+
+Langkah deploy:
+
+1. Pastikan **Root Directory** service Railway adalah root repo (bukan `public/`).
+2. Tambahkan variables berikut di Railway (jangan mengandalkan file `.env`, karena
+   `.env` tidak ikut ke dalam image):
+
+   ```dotenv
+   APP_NAME=pencatatan_berkas
+   APP_ENV=production
+   APP_DEBUG=false
+   APP_KEY=base64:...                  # samakan dengan APP_KEY lokal
+   APP_URL=https://domain-railway-anda
+   LOG_CHANNEL=stderr
+   TRUSTED_PROXIES=*
+
+   DB_CONNECTION=pgsql
+   DB_HOST=aws-1-ap-southeast-2.pooler.supabase.com
+   DB_PORT=5432
+   DB_DATABASE=postgres
+   DB_USERNAME=postgres.qbdwrucapuktnllbqoig
+   DB_PASSWORD=...
+   DB_SSLMODE=require
+
+   SESSION_DRIVER=database
+   CACHE_STORE=database
+   QUEUE_CONNECTION=database
+   ```
+
+3. Deploy ulang. Log build harus menampilkan `Using detected Dockerfile!`.
+4. `preDeployCommand` di `railway.json` otomatis menjalankan
+   `php artisan migrate --force` sebelum container start.
+5. Generate domain Railway, lalu pastikan target port-nya sama dengan `PORT`
+   container (default `8080`).
+
+Jika error MPM masih muncul:
+
+- Buka **Service Settings -> Deploy -> Custom Start Command**, kosongkan nilai lama
+  seperti `vendor/bin/heroku-php-apache2 public/`. Nilai di dashboard bisa menimpa
+  konfigurasi repo.
+- Pastikan builder service diarahkan ke Dockerfile. Bisa juga tambahkan variable
+  `RAILWAY_DOCKERFILE_PATH=Dockerfile`.
+- Hapus/abaikan `Procfile` lama karena itu untuk Heroku buildpack, bukan Docker.
+
+## 5. Menjalankan dengan Docker
 
 File `Dockerfile` sudah menginstal `pdo_pgsql`, `pgsql`, `intl`, `bcmath`, `zip`, dan
 `opcache`, serta mengarahkan Apache ke folder `public/`.
@@ -125,7 +189,7 @@ Aplikasi tersedia di `http://localhost:8080` (ubah dengan `APP_PORT`).
 tidak dimasukkan ke dalam image (lihat `.dockerignore`), sehingga kredensial tidak
 tersimpan di layer image.
 
-## 5. Catatan keamanan
+## 6. Catatan keamanan
 
 Password database sempat ditulis di dalam `.env` yang dibagikan. Sebaiknya ganti password
 database dari Supabase Dashboard, lalu perbarui `DB_PASSWORD` di `.env` server. Jangan

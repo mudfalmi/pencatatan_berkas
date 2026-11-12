@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" role="img" aria-label="Product placeholder">
+  <rect width="80" height="80" rx="8" fill="#f1f3f5"/>
+  <g fill="none" stroke="#adb5bd" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="18" y="26" width="44" height="32" rx="4"/>
+    <path d="M30 26l4-7h12l4 7"/>
+    <circle cx="40" cy="42" r="8"/>
+  </g>
+</svg>

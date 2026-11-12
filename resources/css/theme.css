@@ -1,0 +1,14 @@
+/*
+ * Entry CSS untuk aset tema panel.
+ *
+ * Bootstrap 5.3 di-vendor lokal (resources/vendor/bootstrap) dan ikut
+ * dikompilasi Vite, sehingga halaman tidak perlu request CSS ke CDN.
+ * Urutan import penting: Bootstrap dulu, lalu tema aplikasi agar
+ * variabel/override tema tetap menang.
+ *
+ * Sumber utama tetap public/assets/css/theme.css agar halaman lama dan
+ * fallback tanpa build tetap bekerja. Vite memproses file ini menjadi
+ * versi minified + hash di public/build saat `npm run build`.
+ */
+@import '../vendor/bootstrap/bootstrap.min.css';
+@import '../../public/assets/css/theme.css';
